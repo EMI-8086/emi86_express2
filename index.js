@@ -20,3 +20,18 @@ app.get('/status', (req, res) => {
 app.listen(PORT, () => {
     console.log(`Nodo de la Blockchain iniciado en http://localhost:${PORT}`);
 });
+
+const Blockchain = require('/src/models/Blockchain');
+const nodoAcademico = new Blockchain(); 
+
+app.post('/transactions', (req, res) => {
+    const nuevaTransaccion = req.body;
+
+    nodoAcademico.createNewTransaction(nuevaTransaccion);
+
+    res.status(201).json({
+        success: true,
+        message: "Transacción recibida y guardada en la lista de pendientes local.",
+        transaccionesPendientes: nodoAcademico.pendingTransactions
+    });
+});
