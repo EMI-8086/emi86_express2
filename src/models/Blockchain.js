@@ -5,8 +5,6 @@ class Blockchain {
         this.chain = []; 
         this.pendingTransactions = []; 
         this.networkNodes = []; 
-        
-        // Crear el primer bloque de la red con hash
         this.createNewBlock(0, '0', '0', {}); 
     }
 
@@ -20,13 +18,13 @@ class Blockchain {
         const newBlock = {
             index: this.chain.length + 1,
             timestamp: Date.now(),
-            datos_grado: degreeData, // Los datos de la transacción
+            datos_grado: degreeData,
             nonce: nonce,
             hash_actual: hash,
             hash_anterior: previousBlockHash,
         };
 
-        this.pendingTransactions = []; // limpia las transacciones pendientes
+        this.pendingTransactions = [];
         this.chain.push(newBlock);
         return newBlock;
     }
@@ -52,6 +50,33 @@ class Blockchain {
         }
         
         return nonce;
+    }
+
+    chainIsValid(blockchain) {
+        let validChain = true;
+
+        for (let i = 1; i < blockchain.length; i++) {
+            const currentBlock = blockchain[i];
+            const prevBlock = blockchain[i - 1];
+
+            //Validar que los hashes coincidan
+            if (currentBlock.hash_anterior !== prevBlock.hash_actual) {
+                validChain = false;
+            }
+            //Validar que el hash actual sea correcto recalculándolo
+            const recalculatedHash = this.hashBlock(prevBlock.hash_actual, currentBlock.datos_grado, currentBlock.nonce);
+            if (recalculatedHash !== currentBlock.hash_actual) {
+                validChain = false;
+            }
+        }
+
+        // Validar que el bloque génesis sea correcto
+        const genesisBlock = blockchain[0];
+        if (genesisBlock.nonce !== 0 || genesisBlock.hash_anterior !== '0' || genesisBlock.hash_actual !== '0') {
+            validChain = false;
+        }
+
+        return validChain;
     }
 }
 

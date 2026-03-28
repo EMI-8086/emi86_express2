@@ -95,6 +95,55 @@ app.get('/chain', (req, res) => {
         length: nodoAcademico.chain.length
     });
 });
+
+app.get('/nodes/resolve', async (req, res) => {
+    const fetchPromises = [];
+
+    nodoAcademico.networkNodes.forEach(nodoUrl => {
+        fetchPromises.push(axios.get(`${nodoUrl}/chain`));
+    });
+
+    try {
+        const responses = await Promise.allSettled(fetchPromises);
+        
+        let maxChainLength = nodoAcademico.chain.length;
+        let newLongestChain = null;
+
+        // Revisamos las respuestas de los demás nodos
+        responses.forEach(response => {
+            if (response.status === 'fulfilled') {
+                const chainLength = response.value.data.length;
+                const chain = response.value.data.chain;
+
+                // Si la cadena del compañero es más larga que la nuestra Y además es válida
+                if (chainLength > maxChainLength && nodoAcademico.chainIsValid(chain)) {
+                    maxChainLength = chainLength;
+                    newLongestChain = chain;
+                }
+            }
+        });
+
+        // Si encontramos una cadena válida más larga, reemplazamos la nuestra
+        if (newLongestChain) {
+            nodoAcademico.chain = newLongestChain;
+            nodoAcademico.pendingTransactions = []; 
+            
+            res.status(200).json({
+                message: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red.',
+                chain: nodoAcademico.chain
+            });
+        } else {
+            res.status(200).json({
+                message: 'No hubo conflicto. Tu cadena actual ya es la más larga y válida.',
+                chain: nodoAcademico.chain
+            });
+        }
+    } catch (error) {
+        console.error("Error al resolver el consenso:", error);
+        res.status(500).json({ error: "Error al comunicarse con la red para el consenso." });
+    }
+});
+
 // Registrar manualmente otros nodos de la red
 app.post('/nodes/register', (req, res) => {
     const newNodeUrl = req.body.newNodeUrl;
