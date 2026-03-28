@@ -30,6 +30,36 @@ app.post('/transactions', (req, res) => {
     });
 });
 
+// Endpoint para la red
+app.get('/chain', (req, res) => {
+    res.status(200).json({
+        chain: nodoAcademico.chain,
+        length: nodoAcademico.chain.length
+    });
+});
+
+// Endpoint para registrar manualmente otros nodos de la red
+app.post('/nodes/register', (req, res) => {
+    const newNodeUrl = req.body.newNodeUrl;
+
+    if (!newNodeUrl) {
+        return res.status(400).json({ error: "Debes proporcionar la URL del nodo" });
+    }
+
+    const nodeNotAlreadyPresent = !nodoAcademico.networkNodes.includes(newNodeUrl);
+    const notCurrentNode = newNodeUrl !== `http://localhost:${PORT}`;
+
+    if (nodeNotAlreadyPresent && notCurrentNode) {
+        nodoAcademico.networkNodes.push(newNodeUrl);
+    }
+
+    res.status(201).json({
+        success: true,
+        message: "Nodo registrado exitosamente para formar la red.",
+        nodosRegistrados: nodoAcademico.networkNodes
+    });
+});
+
 app.post('/mine', async (req, res) => {
     if (nodoAcademico.pendingTransactions.length === 0) {
         return res.status(400).json({ error: "No hay transacciones pendientes para minar." });
