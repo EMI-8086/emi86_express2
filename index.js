@@ -8,10 +8,45 @@ const app = express();
 const PORT = process.env.PORT || 8006;
 const nodoAcademico = new Blockchain();
 
-// Middleware para enviar json a otros nodos
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsDoc = require('swagger-jsdoc');
+
+// Configuración para la documentación
+const swaggerOptions = {
+    definition: {
+        openapi: '3.0.0',
+        info: {
+            title: 'API de Blockchain Grados Académicos',
+            version: '1.0.0',
+            description: 'Documentación del nodo para la red blockchain distribuida de grados académicos.',
+            contact: {
+                name: "asdf"
+            }
+        },
+        servers: [
+            {
+                url: `http://localhost:${PORT}`,
+                description: 'Servidor Local (Nodo)'
+            }
+        ]
+    },
+    apis: ['./index.js'],
+};
+const swaggerDocs = swaggerJsDoc(swaggerOptions);
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+
 app.use(express.json());
 
-// Endpoint de prueba para verificar que el nodo está vivo
+/**
+ * @swagger
+ * /status:
+ *   get:
+ *     summary: Verifica el estado del nodo
+ *     description: Retorna un mensaje confirmando que el servidor está activo y escuchando peticiones.
+ *     responses:
+ *       200:
+ *         description: El nodo está activo.
+ */
 app.get('/status', (req, res) => {
     res.status(200).json({
         success: true,
@@ -19,20 +54,67 @@ app.get('/status', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /transaction/broadcast:
+ *   post:
+ *     summary: Recibe una transacción propagada por otro nodo
+ *     description: Guarda una transacción entrante en la lista local de transacciones pendientes. A diferencia de /transactions, esta ruta no vuelve a propagar los datos para evitar ciclos infinitos en la red.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               persona_id:
+ *                 type: string
+ *               institucion_id:
+ *                 type: string
+ *               titulo_obtenido:
+ *                 type: string
+ *               fecha_fin:
+ *                 type: string
+ *                 format: date
+ *     responses:
+ *       200:
+ *         description: Transacción recibida de otro nodo y sincronizada exitosamente.
+ */
 app.post('/transaction/broadcast', (req, res) => {
     const nuevaTransaccion = req.body;
     nodoAcademico.createNewTransaction(nuevaTransaccion);
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
         success: true,
-        message: 'Transacción recibida de otro nodo y sincronizada exitosamente.' 
+        message: 'Transacción recibida de otro nodo y sincronizada exitosamente.'
     });
 });
 
-// recibe un bloque minado por otro nodo
+/**
+ * @swagger
+ * /receive-new-block:
+ *   post:
+ *     summary: Recibe y valida un bloque minado por otro nodo
+ *     description: Al recibir un nuevo bloque, valida que el hash anterior coincida y que el índice sea el correcto antes de añadirlo a la cadena local.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               newBlock:
+ *                 type: object
+ *                 description: Objeto que contiene toda la estructura del bloque recién minado.
+ *     responses:
+ *       200:
+ *         description: Bloque recibido, validado y añadido a la cadena local.
+ *       400:
+ *         description: Bloque rechazado. El hash o el índice no son válidos.
+ */
 app.post('/receive-new-block', (req, res) => {
     const newBlock = req.body.newBlock;
-    
+
     // Obtiene el último bloque
     const lastBlock = nodoAcademico.getLastBlock();
 
@@ -41,28 +123,58 @@ app.post('/receive-new-block', (req, res) => {
 
     if (correctHash && correctIndex) {
         nodoAcademico.chain.push(newBlock);
-        nodoAcademico.pendingTransactions = []; 
-        
-        res.status(200).json({ 
-            success: true, 
+        nodoAcademico.pendingTransactions = [];
+
+        res.status(200).json({
+            success: true,
             message: 'Bloque recibido, validado y añadido a la cadena local.',
             newBlock: newBlock
         });
     } else {
-        res.status(400).json({ 
-            success: false, 
+        res.status(400).json({
+            success: false,
             message: 'Bloque rechazado. El hash o el índice no son válidos.',
             newBlock: newBlock
         });
     }
 });
 
+/**
+ * @swagger
+ * /transactions:
+ *   post:
+ *     summary: Crea una nueva transacción académica
+ *     description: Recibe los datos de un nuevo grado académico, lo guarda en la lista de pendientes local y lo propaga a la red.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               persona_id:
+ *                 type: string
+ *                 example: "uuid-de-la-persona"
+ *               institucion_id:
+ *                 type: string
+ *                 example: "uuid-de-la-institucion"
+ *               titulo_obtenido:
+ *                 type: string
+ *                 example: "Ingeniero en Sistemas"
+ *               fecha_fin:
+ *                 type: string
+ *                 format: date
+ *                 example: "2026-06-01"
+ *     responses:
+ *       201:
+ *         description: Transacción recibida y propagada exitosamente.
+ */
 app.post('/transactions', async (req, res) => {
     const nuevaTransaccion = req.body;
     nodoAcademico.createNewTransaction(nuevaTransaccion);
     // propagar a los demás nodos registrados 
     const promesasPropagacion = [];
-    
+
     nodoAcademico.networkNodes.forEach(nodoUrl => {
         // hace un POST al endpoint de cada compañero
         const requestPromise = axios.post(`${nodoUrl}/transaction/broadcast`, nuevaTransaccion);
@@ -81,6 +193,7 @@ app.post('/transactions', async (req, res) => {
         transaccionesPendientes: nodoAcademico.pendingTransactions
     });
 });
+
 // transacciones pendientes(temporal)
 app.get('/transactions/pending', (req, res) => {
     res.status(200).json({
@@ -88,7 +201,28 @@ app.get('/transactions/pending', (req, res) => {
         pendientes: nodoAcademico.pendingTransactions
     });
 });
-// Endpoint para la red
+
+/**
+ * @swagger
+ * /chain:
+ *   get:
+ *     summary: Obtiene la cadena de bloques local completa
+ *     description: Devuelve la lista completa de bloques minados en este nodo y la longitud actual de la cadena. Es utilizado por otros nodos durante la fase de consenso para sincronizarse y resolver conflictos.
+ *     responses:
+ *       200:
+ *         description: Retorna la cadena de bloques y su longitud exitosamente.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 chain:
+ *                   type: array
+ *                   description: Arreglo que contiene todos los bloques almacenados en la red local.
+ *                 length:
+ *                   type: integer
+ *                   description: Número total de bloques en la cadena.
+ */
 app.get('/chain', (req, res) => {
     res.status(200).json({
         chain: nodoAcademico.chain,
@@ -96,6 +230,18 @@ app.get('/chain', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /nodes/resolve:
+ *   get:
+ *     summary: Algoritmo de Consenso (Resolución de conflictos)
+ *     description: Consulta las cadenas de todos los nodos registrados en la red. Si encuentra una cadena válida que sea más larga que la local, la adopta para mantener el consenso.
+ *     responses:
+ *       200:
+ *         description: Devuelve el resultado del consenso (si hubo conflicto resuelto o si la cadena actual ya era la correcta).
+ *       500:
+ *         description: Error al comunicarse con la red para el consenso.
+ */
 app.get('/nodes/resolve', async (req, res) => {
     const fetchPromises = [];
 
@@ -105,7 +251,7 @@ app.get('/nodes/resolve', async (req, res) => {
 
     try {
         const responses = await Promise.allSettled(fetchPromises);
-        
+
         let maxChainLength = nodoAcademico.chain.length;
         let newLongestChain = null;
 
@@ -126,8 +272,8 @@ app.get('/nodes/resolve', async (req, res) => {
         // Si encontramos una cadena válida más larga, reemplazamos la nuestra
         if (newLongestChain) {
             nodoAcademico.chain = newLongestChain;
-            nodoAcademico.pendingTransactions = []; 
-            
+            nodoAcademico.pendingTransactions = [];
+
             res.status(200).json({
                 message: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red.',
                 chain: nodoAcademico.chain
@@ -144,7 +290,28 @@ app.get('/nodes/resolve', async (req, res) => {
     }
 });
 
-// Registrar manualmente otros nodos de la red
+/**
+ * @swagger
+ * /nodes/register:
+ *   post:
+ *     summary: Registra un nuevo nodo en la red
+ *     description: Recibe la URL de otro nodo compañero y lo guarda en la lista de nodos conocidos para la futura propagación de transacciones y bloques.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               newNodeUrl:
+ *                 type: string
+ *                 example: "http://localhost:8007"
+ *     responses:
+ *       201:
+ *         description: Nodo registrado exitosamente para formar la red.
+ *       400:
+ *         description: Debes proporcionar la URL del nodo en el campo 'newNodeUrl'.
+ */
 app.post('/nodes/register', (req, res) => {
     const newNodeUrl = req.body.newNodeUrl;
 
@@ -166,6 +333,20 @@ app.post('/nodes/register', (req, res) => {
     });
 });
 
+/**
+ * @swagger
+ * /mine:
+ *   post:
+ *     summary: Mina un nuevo bloque en la red
+ *     description: Ejecuta el Proof of Work para las transacciones pendientes, crea un nuevo bloque, lo guarda en Supabase y lo propaga.
+ *     responses:
+ *       200:
+ *         description: Bloque minado, guardado y propagado con éxito.
+ *       400:
+ *         description: No hay transacciones pendientes para minar.
+ *       500:
+ *         description: Error al guardar en la base de datos.
+ */
 app.post('/mine', async (req, res) => {
     if (nodoAcademico.pendingTransactions.length === 0) {
         return res.status(400).json({ error: "No hay transacciones pendientes para minar." });
@@ -226,7 +407,6 @@ app.post('/mine', async (req, res) => {
         db_record: data
     });
 });
-
 
 // Iniciar el servidor
 app.listen(PORT, () => {
