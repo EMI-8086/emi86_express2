@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const axios = require('axios');
 const supabase = require('./src/config/db');
 const Blockchain = require('./src/models/Blockchain');
 
@@ -18,18 +19,75 @@ app.get('/status', (req, res) => {
     });
 });
 
-app.post('/transactions', (req, res) => {
+app.post('/transaction/broadcast', (req, res) => {
     const nuevaTransaccion = req.body;
-
     nodoAcademico.createNewTransaction(nuevaTransaccion);
-
-    res.status(201).json({
+    
+    res.status(200).json({ 
         success: true,
-        message: "Transacción recibida y guardada en la lista de pendientes local.",
-        transaccionesPendientes: nodoAcademico.pendingTransactions
+        message: 'Transacción recibida de otro nodo y sincronizada exitosamente.' 
     });
 });
 
+// recibe un bloque minado por otro nodo
+app.post('/receive-new-block', (req, res) => {
+    const newBlock = req.body.newBlock;
+    
+    // Obtiene el último bloque
+    const lastBlock = nodoAcademico.getLastBlock();
+
+    const correctHash = lastBlock.hash_actual === newBlock.hash_anterior;
+    const correctIndex = lastBlock.index + 1 === newBlock.index;
+
+    if (correctHash && correctIndex) {
+        nodoAcademico.chain.push(newBlock);
+        nodoAcademico.pendingTransactions = []; 
+        
+        res.status(200).json({ 
+            success: true, 
+            message: 'Bloque recibido, validado y añadido a la cadena local.',
+            newBlock: newBlock
+        });
+    } else {
+        res.status(400).json({ 
+            success: false, 
+            message: 'Bloque rechazado. El hash o el índice no son válidos.',
+            newBlock: newBlock
+        });
+    }
+});
+
+app.post('/transactions', async (req, res) => {
+    const nuevaTransaccion = req.body;
+    nodoAcademico.createNewTransaction(nuevaTransaccion);
+    // propagar a los demás nodos registrados 
+    const promesasPropagacion = [];
+    
+    nodoAcademico.networkNodes.forEach(nodoUrl => {
+        // hace un POST al endpoint de cada compañero
+        const requestPromise = axios.post(`${nodoUrl}/transaction/broadcast`, nuevaTransaccion);
+        promesasPropagacion.push(requestPromise);
+    });
+
+    try {
+        await Promise.allSettled(promesasPropagacion);
+    } catch (error) {
+        console.error("Error al propagar a algunos nodos:", error);
+    }
+
+    res.status(201).json({
+        success: true,
+        message: "Transacción creada localmente y propagada a toda la red.",
+        transaccionesPendientes: nodoAcademico.pendingTransactions
+    });
+});
+// transacciones pendientes(temporal)
+app.get('/transactions/pending', (req, res) => {
+    res.status(200).json({
+        nodoActivo: `Puerto ${PORT}`,
+        pendientes: nodoAcademico.pendingTransactions
+    });
+});
 // Endpoint para la red
 app.get('/chain', (req, res) => {
     res.status(200).json({
@@ -37,8 +95,7 @@ app.get('/chain', (req, res) => {
         length: nodoAcademico.chain.length
     });
 });
-
-// Endpoint para registrar manualmente otros nodos de la red
+// Registrar manualmente otros nodos de la red
 app.post('/nodes/register', (req, res) => {
     const newNodeUrl = req.body.newNodeUrl;
 
@@ -66,17 +123,15 @@ app.post('/mine', async (req, res) => {
     }
 
     const currentBlockData = nodoAcademico.pendingTransactions[0];
-    // obtiene el hash del bloque anterior
     const lastBlock = nodoAcademico.getLastBlock();
     const previousBlockHash = lastBlock.hash_actual;
     // ejecuta Proof of Work para encontrar el nonce
     const nonce = nodoAcademico.proofOfWork(previousBlockHash, currentBlockData);
     // genera el hash final
     const blockHash = nodoAcademico.hashBlock(previousBlockHash, currentBlockData, nonce);
-    // crear el bloque en mi cadena local
     const newBlock = nodoAcademico.createNewBlock(nonce, previousBlockHash, blockHash, currentBlockData);
 
-    // --- GUARDAR EN SUPABASE ---
+    // guarda en supabase
     const { data, error } = await supabase
         .from('grados')
         .insert([
@@ -101,11 +156,25 @@ app.post('/mine', async (req, res) => {
             error: error.message
         });
     }
+    // propaga el bloque a la red
+    const blockPromises = [];
+    nodoAcademico.networkNodes.forEach(nodoUrl => {
+        // se envia el bloque nuevo a todos
+        const requestPromise = axios.post(`${nodoUrl}/receive-new-block`, { newBlock: newBlock });
+        blockPromises.push(requestPromise);
+    });
+
+    try {
+        await Promise.allSettled(blockPromises);
+    } catch (err) {
+        console.error("Error al propagar el bloque:", err);
+    }
 
     res.status(200).json({
         success: true,
-        message: "Bloque minado y añadido a la cadena local exitosamente",
-        block: newBlock
+        message: "Bloque minado, guardado en Supabase y propagado a la red exitosamente",
+        block: newBlock,
+        db_record: data
     });
 });
 
