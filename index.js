@@ -50,7 +50,7 @@ app.use(express.json());
 app.get('/status', (req, res) => {
     res.status(200).json({
         success: true,
-        message: `Nodo activo y escuchando en el puerto ${PORT}`
+        mensaje: `Nodo activo y escuchando en el puerto ${PORT}`
     });
 });
 
@@ -86,7 +86,7 @@ app.post('/transaction/broadcast', (req, res) => {
 
     res.status(200).json({
         success: true,
-        message: 'Transacción recibida de otro nodo y sincronizada exitosamente.'
+        mensaje: 'Transacción recibida de otro nodo y sincronizada exitosamente.'
     });
 });
 
@@ -112,29 +112,27 @@ app.post('/transaction/broadcast', (req, res) => {
  *       400:
  *         description: Bloque rechazado. El hash o el índice no son válidos.
  */
-app.post('/receive-new-block', (req, res) => {
-    const newBlock = req.body.newBlock;
+app.post('/blocks/receive', (req, res) => {
+    const newBlock = req.body;
 
     // Obtiene el último bloque
     const lastBlock = nodoAcademico.getLastBlock();
-
     const correctHash = lastBlock.hash_actual === newBlock.hash_anterior;
-    const correctIndex = lastBlock.index + 1 === newBlock.index;
 
-    if (correctHash && correctIndex) {
+    if (correctHash) {
         nodoAcademico.chain.push(newBlock);
         nodoAcademico.pendingTransactions = [];
 
         res.status(200).json({
             success: true,
-            message: 'Bloque recibido, validado y añadido a la cadena local.',
-            newBlock: newBlock
+            mensaje: 'Bloque recibido, validado y añadido a la cadena local.',
+            bloque: newBlock
         });
     } else {
         res.status(400).json({
             success: false,
-            message: 'Bloque rechazado. El hash o el índice no son válidos.',
-            newBlock: newBlock
+            mesnaje: 'Bloque rechazado. El hash no es válido.',
+            bloque: newBlock
         });
     }
 });
@@ -189,7 +187,7 @@ app.post('/transactions', async (req, res) => {
 
     res.status(201).json({
         success: true,
-        message: "Transacción creada localmente y propagada a toda la red.",
+        mensaje: "Transacción creada localmente y propagada a toda la red.",
         transaccionesPendientes: nodoAcademico.pendingTransactions
     });
 });
@@ -198,7 +196,8 @@ app.post('/transactions', async (req, res) => {
 app.get('/transactions/pending', (req, res) => {
     res.status(200).json({
         nodoActivo: `Puerto ${PORT}`,
-        pendientes: nodoAcademico.pendingTransactions
+        transacciones_pendientes: nodoAcademico.pendingTransactions,
+        total: nodoAcademico.pendingTransactions.lengt
     });
 });
 
@@ -244,7 +243,6 @@ app.get('/chain', (req, res) => {
  */
 app.get('/nodes/resolve', async (req, res) => {
     const fetchPromises = [];
-
     nodoAcademico.networkNodes.forEach(nodoUrl => {
         fetchPromises.push(axios.get(`${nodoUrl}/chain`));
     });
@@ -275,13 +273,13 @@ app.get('/nodes/resolve', async (req, res) => {
             nodoAcademico.pendingTransactions = [];
 
             res.status(200).json({
-                message: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red.',
-                chain: nodoAcademico.chain
+                mensaje: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red.',
+                cadena: nodoAcademico.chain
             });
         } else {
             res.status(200).json({
-                message: 'No hubo conflicto. Tu cadena actual ya es la más larga y válida.',
-                chain: nodoAcademico.chain
+                mensaje: 'No hubo conflicto. Tu cadena actual ya es la más larga y válida.',
+                cadena: nodoAcademico.chain
             });
         }
     } catch (error) {
@@ -313,7 +311,7 @@ app.get('/nodes/resolve', async (req, res) => {
  *         description: Debes proporcionar la URL del nodo en el campo 'newNodeUrl'.
  */
 app.post('/nodes/register', (req, res) => {
-    const newNodeUrl = req.body.newNodeUrl;
+    const newNodeUrl = req.body.url;
 
     if (!newNodeUrl) {
         return res.status(400).json({ error: "Debes proporcionar la URL del nodo" });
@@ -328,8 +326,15 @@ app.post('/nodes/register', (req, res) => {
 
     res.status(201).json({
         success: true,
-        message: "Nodo registrado exitosamente para formar la red.",
+        mensaje: "Nodo registrado exitosamente para formar la red.",
         nodosRegistrados: nodoAcademico.networkNodes
+    });
+});
+
+app.get('/nodes', (req, res) => {
+    res.status(200).json({
+        nodos: nodoAcademico.networkNodes,
+        total: nodoAcademico.networkNodes.length
     });
 });
 
@@ -348,6 +353,7 @@ app.post('/nodes/register', (req, res) => {
  *         description: Error al guardar en la base de datos.
  */
 app.post('/mine', async (req, res) => {
+    const firmado_por = req.body.firmado_por || `nodo-express-${PORT}`;
     if (nodoAcademico.pendingTransactions.length === 0) {
         return res.status(400).json({ error: "No hay transacciones pendientes para minar." });
     }
@@ -359,7 +365,21 @@ app.post('/mine', async (req, res) => {
     const nonce = nodoAcademico.proofOfWork(previousBlockHash, currentBlockData);
     // genera el hash final
     const blockHash = nodoAcademico.hashBlock(previousBlockHash, currentBlockData, nonce);
-    const newBlock = nodoAcademico.createNewBlock(nonce, previousBlockHash, blockHash, currentBlockData);
+    //const newBlock = nodoAcademico.createNewBlock(nonce, previousBlockHash, blockHash, currentBlockData);
+
+    const bloqueEstandar = {
+        persona_id: currentBlockData.persona_id,
+        institucion_id: currentBlockData.institucion_id,
+        programa_id: currentBlockData.programa_id,
+        titulo_obtenido: currentBlockData.titulo_obtenido,
+        fecha_fin: currentBlockData.fecha_fin,
+        hash_actual: blockHash,
+        hash_anterior: previousBlockHash,
+        nonce: nonce,
+        firmado_por: firmado_por
+    };
+    nodoAcademico.chain.push(bloqueEstandar);
+    nodoAcademico.pendingTransactions = [];
 
     // guarda en supabase
     const { data, error } = await supabase
@@ -368,12 +388,13 @@ app.post('/mine', async (req, res) => {
             {
                 persona_id: currentBlockData.persona_id,
                 institucion_id: currentBlockData.institucion_id,
+                programa_id: currentBlockData.programa_id,
                 titulo_obtenido: currentBlockData.titulo_obtenido,
                 fecha_fin: currentBlockData.fecha_fin,
                 hash_actual: blockHash,
                 hash_anterior: previousBlockHash,
                 nonce: nonce,
-                firmado_por: "Nodo de EmiLaBola"
+                firmado_por: firmado_por
             }
         ])
         .select();
@@ -382,15 +403,14 @@ app.post('/mine', async (req, res) => {
         console.error("Error al guardar en Supabase:", error);
         return res.status(500).json({
             success: false,
-            message: "Bloque minado localmente, pero falló al guardar en Supabase.",
+            mensaje: "Bloque minado localmente, pero falló al guardar en Supabase.",
             error: error.message
         });
     }
     // propaga el bloque a la red
     const blockPromises = [];
     nodoAcademico.networkNodes.forEach(nodoUrl => {
-        // se envia el bloque nuevo a todos
-        const requestPromise = axios.post(`${nodoUrl}/receive-new-block`, { newBlock: newBlock });
+        const requestPromise = axios.post(`${nodoUrl}/blocks/receive`, bloqueEstandar);
         blockPromises.push(requestPromise);
     });
 
@@ -402,9 +422,15 @@ app.post('/mine', async (req, res) => {
 
     res.status(200).json({
         success: true,
-        message: "Bloque minado, guardado en Supabase y propagado a la red exitosamente",
-        block: newBlock,
-        db_record: data
+        mensaje: "Bloque minado, guardado en Supabase y propagado a la red exitosamente",
+        bloque: bloqueEstandar
+    });
+});
+
+app.post('/genesis', (req, res) => {
+    res.status(201).json({
+        mensaje: "Bloque génesis creado",
+        bloque: nodoAcademico.chain[0]
     });
 });
 
