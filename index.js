@@ -123,9 +123,31 @@ app.post('/blocks/receive', async (req, res) => {
         nodoAcademico.chain.push(newBlock);
         nodoAcademico.pendingTransactions = [];
 
+        // --- NUEVO: Guardar en Supabase el bloque que recibimos de la red ---
+        const { error } = await supabase
+            .from('grados')
+            .insert([
+                {
+                    persona_id: newBlock.persona_id,
+                    institucion_id: newBlock.institucion_id,
+                    programa_id: newBlock.programa_id,
+                    titulo_obtenido: newBlock.titulo_obtenido,
+                    fecha_fin: newBlock.fecha_fin,
+                    hash_actual: newBlock.hash_actual,
+                    hash_anterior: newBlock.hash_anterior,
+                    nonce: newBlock.nonce,
+                    firmado_por: newBlock.firmado_por
+                }
+            ]);
+
+        if (error) {
+            console.error("Error al guardar en Supabase el bloque recibido:", error);
+        }
+        // --------------------------------------------------------------------
+
         res.status(200).json({
             success: true,
-            mensaje: 'Bloque recibido, validado y añadido a la cadena local.',
+            mensaje: 'Bloque recibido, validado y añadido a la cadena local y Supabase.',
             bloque: newBlock
         });
     } else {
@@ -232,14 +254,14 @@ app.get('/chain', (req, res) => {
 /**
  * @swagger
  * /nodes/resolve:
- *   get:
- *     summary: Algoritmo de Consenso (Resolución de conflictos)
- *     description: Consulta las cadenas de todos los nodos registrados en la red. Si encuentra una cadena válida que sea más larga que la local, la adopta para mantener el consenso.
- *     responses:
- *       200:
- *         description: Devuelve el resultado del consenso (si hubo conflicto resuelto o si la cadena actual ya era la correcta).
- *       500:
- *         description: Error al comunicarse con la red para el consenso.
+ * get:
+ * summary: Algoritmo de Consenso (Resolución de conflictos)
+ * description: Consulta las cadenas de todos los nodos registrados en la red. Si encuentra una cadena válida que sea más larga que la local, la adopta para mantener el consenso y sincroniza la base de datos de Supabase.
+ * responses:
+ * 200:
+ * description: Devuelve el resultado del consenso (si hubo conflicto resuelto o si la cadena actual ya era la correcta).
+ * 500:
+ * description: Error al comunicarse con la red para el consenso.
  */
 app.get('/nodes/resolve', async (req, res) => {
     const fetchPromises = [];
@@ -272,8 +294,41 @@ app.get('/nodes/resolve', async (req, res) => {
             nodoAcademico.chain = newLongestChain;
             nodoAcademico.pendingTransactions = [];
 
+            // --- NUEVO: Sincronización completa con Supabase ---
+            try {
+                // 1. Borramos nuestra base de datos local porque estaba desactualizada.
+                // Supabase requiere un filtro para borrar, usamos uno que siempre sea verdadero
+                await supabase.from('grados').delete().neq('hash_actual', 'borrar-todo');
+
+                // 2. Preparamos la nueva cadena para insertarla de golpe.
+                // Usamos .slice(1) para ignorar el bloque Génesis (posición 0), 
+                // ya que no tiene UUIDs reales y daría error en tus llaves foráneas.
+                const bloquesParaInsertar = newLongestChain.slice(1).map(block => ({
+                    persona_id: block.persona_id,
+                    institucion_id: block.institucion_id,
+                    programa_id: block.programa_id,
+                    titulo_obtenido: block.titulo_obtenido,
+                    fecha_fin: block.fecha_fin,
+                    hash_actual: block.hash_actual,
+                    hash_anterior: block.hash_anterior,
+                    nonce: block.nonce,
+                    firmado_por: block.firmado_por
+                }));
+
+                // 3. Si hay bloques reales, hacemos la inserción masiva
+                if (bloquesParaInsertar.length > 0) {
+                    const { error: insertError } = await supabase.from('grados').insert(bloquesParaInsertar);
+                    if (insertError) {
+                        console.error("Error al reescribir Supabase durante el consenso:", insertError);
+                    }
+                }
+            } catch (dbError) {
+                console.error("Error crítico de base de datos durante el consenso:", dbError);
+            }
+            // ---------------------------------------------------
+
             res.status(200).json({
-                mensaje: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red.',
+                mensaje: 'Conflicto resuelto. Se ha adoptado la cadena válida más larga de la red y la base de datos fue sincronizada.',
                 cadena: nodoAcademico.chain
             });
         } else {

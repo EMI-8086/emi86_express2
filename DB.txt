@@ -1,0 +1,72 @@
+CREATE TABLE personas (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+nombre VARCHAR(100) NOT NULL,
+apellido_paterno VARCHAR(100) NOT NULL,
+apellido_materno VARCHAR(100),
+curp VARCHAR(18) UNIQUE,
+correo VARCHAR(150),
+creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+CREATE TABLE instituciones (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+nombre VARCHAR(255) NOT NULL,
+pais VARCHAR(100),
+estado VARCHAR(100),
+creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE niveles_grado (
+id SERIAL PRIMARY KEY,
+nombre VARCHAR(50) NOT NULL
+);
+INSERT INTO niveles_grado (nombre) VALUES
+('Técnico'),
+('Licenciatura'),
+('Maestría'),
+('Doctorado'),
+('Especialidad');
+CREATE TABLE programas (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+nombre VARCHAR(255) NOT NULL,
+nivel_grado_id INT REFERENCES niveles_grado(id),
+creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE grados (
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+persona_id UUID REFERENCES personas(id) ON DELETE CASCADE,
+institucion_id UUID REFERENCES instituciones(id),
+programa_id UUID REFERENCES programas(id),
+fecha_inicio DATE,
+fecha_fin DATE,
+titulo_obtenido VARCHAR(255),
+numero_cedula VARCHAR(50),
+titulo_tesis TEXT,
+menciones VARCHAR(100),
+-- Campos tipo blockchain
+hash_actual TEXT NOT NULL,
+hash_anterior TEXT,
+nonce INTEGER,
+firmado_por VARCHAR(255),
+creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+drop table grados;
+
+CREATE TABLE grados (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+    persona_id UUID REFERENCES personas (id) ON DELETE CASCADE,
+    institucion_id UUID REFERENCES instituciones (id),
+    programa_id UUID REFERENCES programas (id),
+    fecha_inicio DATE, 
+    fecha_fin DATE, 
+    titulo_obtenido VARCHAR(255),
+    numero_cedula VARCHAR(50), 
+    titulo_tesis TEXT,
+    menciones VARCHAR(100),
+    hash_actual TEXT NOT NULL, 
+    hash_anterior TEXT, 
+    nonce INTEGER, 
+    firmado_por VARCHAR(255), 
+    creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP 
+); 
