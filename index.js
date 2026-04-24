@@ -112,7 +112,7 @@ app.post('/transaction/broadcast', (req, res) => {
  *       400:
  *         description: Bloque rechazado. El hash o el índice no son válidos.
  */
-app.post('/blocks/receive', (req, res) => {
+app.post('/blocks/receive', async (req, res) => {
     const newBlock = req.body;
 
     // Obtiene el último bloque
